@@ -3,16 +3,23 @@ import * as hl from "@nktkas/hyperliquid";
 
 const EXCHANGES = ['Hyperliquid', 'Binance', 'Bybit', 'OKX']
 const COINS = ['BTC', 'ETH', 'SOL', 'MKR', 'DOGE']
+const MOCK_FUNDING_RATES: Record<string, Record<string, number>> = {
+    Binance: { BTC: 0.00001, ETH: 0.00002, SOL: 0.000015, MKR: 0.00001, DOGE: 0.000005 },
+    Bybit:   { BTC: 0.000012, ETH: 0.000019, SOL: 0.000017, MKR: 0.000012, DOGE: 0.000006 },
+    OKX:     { BTC: 0.000011, ETH: 0.000022, SOL: 0.000014, MKR: 0.000013, DOGE: 0.000004 }
+}
 
 function App() {
     const [exchangeA, setExchangeA] = useState('')
     const [exchangeB, setExchangeB] = useState('')
     const [coin, setCoin] = useState('')
-
+    const [fundingRate, setFundingRate] = useState<number | null>(null);
+    const [spread, setSpread] = useState<number | null>(null);
+    const [note, setNote] = useState<string | null>(null);
 
     async function testFundingRate() {
-        if (!coin) {
-            console.warn("No coin selected");
+        if (!coin || !exchangeA || !exchangeB) {
+            console.warn("Missing selection");
             return;
         }
 
@@ -24,8 +31,26 @@ function App() {
             startTime: Date.now() - 1000 * 60 * 60 * 24
         });
 
-        const last = result[0];
-        console.log(`Funding rate for ${coin}:`, last.fundingRate);
+        const hlRate = parseFloat(result[0].fundingRate);
+        let otherRate = 0;
+
+        if (exchangeA === "Hyperliquid") {
+            otherRate = MOCK_FUNDING_RATES[exchangeB]?.[coin] ?? 0;
+        } else if (exchangeB === "Hyperliquid") {
+            otherRate = MOCK_FUNDING_RATES[exchangeA]?.[coin] ?? 0;
+        } else {
+            console.warn("At least one exchange must be Hyperliquid");
+            return;
+        }
+
+        const spreadVal = hlRate - otherRate;
+        setFundingRate(hlRate);
+        setSpread(spreadVal);
+        setNote(
+            spreadVal > 0
+                ? "Positive funding spread. Arbitrage might be profitable."
+                : "No profitable arbitrage."
+        );
     }
 
 
@@ -99,6 +124,19 @@ function App() {
                 Get Hyperliquid Funding Rate
             </button>
 
+            {fundingRate !== null && (
+                <p className="mt-4 text-green-400">
+                    Latest funding rate: <strong>{fundingRate}</strong>
+                </p>
+            )}
+
+            {spread !== null && (
+                <p className={`mt-2 ${spread > 0 ? 'text-green-400 ': 'text-red-400'}`}>
+                    Spread: <strong>{spread.toFixed(8)}</strong>
+                    <br />
+                    {note}
+                </p>
+            )}
         </div>
     )
 }
