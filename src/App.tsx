@@ -3,11 +3,42 @@ import * as hl from "@nktkas/hyperliquid";
 
 const EXCHANGES = ['Hyperliquid', 'Binance', 'Bybit', 'OKX']
 const COINS = ['BTC', 'ETH', 'SOL', 'MKR', 'DOGE']
-const MOCK_FUNDING_RATES: Record<string, Record<string, number>> = {
-    Binance: { BTC: 0.00001, ETH: 0.00002, SOL: 0.000015, MKR: 0.00001, DOGE: 0.000005 },
-    Bybit:   { BTC: 0.000012, ETH: 0.000019, SOL: 0.000017, MKR: 0.000012, DOGE: 0.000006 },
-    OKX:     { BTC: 0.000011, ETH: 0.000022, SOL: 0.000014, MKR: 0.000013, DOGE: 0.000004 }
+
+async function getFundingRate(exchange: string, coin: string): Promise<number> {
+    if (exchange === "Hyperliquid") {
+        const transport = new hl.HttpTransport();
+        const client = new hl.InfoClient({ transport });
+
+        const result = await client.fundingHistory({
+            coin,
+            startTime: Date.now() - 1000 * 60 * 60 * 24
+        });
+
+        return parseFloat(result[0].fundingRate);
+    }
+
+    if (exchange === "Binance") {
+        const res = await fetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${coin}USDT`);
+        const data = await res.json();
+        return parseFloat(data.lastFundingRate);
+    }
+
+    if (exchange === "Bybit") {
+        const res = await fetch(`https://api.bybit.com/v5/market/funding/history?category=linear&symbol=${coin}USDT`);
+        const data = await res.json();
+        const last = data.result.list[0];
+        return parseFloat(last.fundingRate);
+    }
+
+    if (exchange === "OKX") {
+        const res = await fetch(`https://www.okx.com/api/v5/public/funding-rate?instId=${coin}-USDT-SWAP`);
+        const data = await res.json();
+        return parseFloat(data.data[0].fundingRate);
+    }
+
+    return 0;
 }
+
 
 function App() {
     const [exchangeA, setExchangeA] = useState('')
@@ -23,80 +54,56 @@ function App() {
             return;
         }
 
-        const transport = new hl.HttpTransport();
-        const client = new hl.InfoClient({ transport });
+        const rateA = await getFundingRate(exchangeA, coin);
+        const rateB = await getFundingRate(exchangeB, coin);
 
-        const result = await client.fundingHistory({
-            coin: coin,
-            startTime: Date.now() - 1000 * 60 * 60 * 24
-        });
 
-        const hlRate = parseFloat(result[0].fundingRate);
-        let otherRate = 0;
-
-        if (exchangeA === "Hyperliquid") {
-            otherRate = MOCK_FUNDING_RATES[exchangeB]?.[coin] ?? 0;
-        } else if (exchangeB === "Hyperliquid") {
-            otherRate = MOCK_FUNDING_RATES[exchangeA]?.[coin] ?? 0;
-        } else {
-            console.warn("At least one exchange must be Hyperliquid");
-            return;
-        }
-
-        const spreadVal = hlRate - otherRate;
-        setFundingRate(hlRate);
+        const spreadVal = rateA - rateB;
+        setFundingRate(rateA);
         setSpread(spreadVal);
         setNote(
             spreadVal > 0
-                ? "Positive funding spread. Arbitrage might be profitable."
-                : "No profitable arbitrage."
+                ? `${exchangeA} has a higher funding rate.`
+                : `${exchangeB} has a higher funding rate.`
         );
     }
 
 
     return (
         <div className="min-h-screen bg-gray-900 text-white p-6">
-            <h1 className="text-2xl font-bold mb-4">Arbitrage Funding Viewer</h1>
+            <h1 className="text-3xl font-bold mb-6">Arbitrage Funding Viewer</h1>
 
-            <div className="mb-4">
-                <label className="block mb-1">Select Exchange A (Long)</label>
-                <select
-                    className="bg-gray-800 border border-gray-600 p-2 rounded w-full"
-                    value={exchangeA}
-                    onChange={(e) => setExchangeA(e.target.value)}
-                >
-                    <option value="">-- Choose Exchange --</option>
-                    {EXCHANGES.map((ex) => (
-                        <option key={ex} value={ex}>
-                            {ex}
-                        </option>
-                    ))}
-                </select>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div>
+                    <label className="block mb-1 text-sm">Exchange A (Long)</label>
+                    <select
+                        className="bg-gray-800 border border-gray-600 p-2 rounded w-full"
+                        value={exchangeA}
+                        onChange={(e) => setExchangeA(e.target.value)}
+                    >
+                        <option value="">-- Choose Exchange --</option>
+                        {EXCHANGES.map((ex) => (
+                            <option key={ex} value={ex}>{ex}</option>
+                        ))}
+                    </select>
+                </div>
+                <div>
+                    <label className="block mb-1 text-sm">Exchange B (Short)</label>
+                    <select
+                        className="bg-gray-800 border border-gray-600 p-2 rounded w-full"
+                        value={exchangeB}
+                        onChange={(e) => setExchangeB(e.target.value)}
+                    >
+                        <option value="">-- Choose Exchange --</option>
+                        {EXCHANGES.map((ex) => (
+                            <option key={ex} value={ex}>{ex}</option>
+                        ))}
+                    </select>
+                </div>
             </div>
 
             <div className="mb-6">
-                <label className="block mb-1">Select Exchange B (Short)</label>
-                <select
-                    className="bg-gray-800 border border-gray-600 p-2 rounded w-full"
-                    value={exchangeB}
-                    onChange={(e) => setExchangeB(e.target.value)}
-                >
-                    <option value="">-- Choose Exchange --</option>
-                    {EXCHANGES.map((ex) => (
-                        <option key={ex} value={ex}>
-                            {ex}
-                        </option>
-                    ))}
-                </select>
-            </div>
-
-            <div>
-                <p className="text-sm text-gray-400">
-                    Selected: <strong>{exchangeA || 'None'}</strong> vs <strong>{exchangeB || 'None'}</strong>
-                </p>
-            </div>
-            <div className="mb-6">
-                <label className="block mb-1">Select Coin</label>
+                <label className="block mb-1 text-sm">Select Coin</label>
                 <select
                     className="bg-gray-800 border border-gray-600 p-2 rounded w-full"
                     value={coin}
@@ -104,41 +111,33 @@ function App() {
                 >
                     <option value="">-- Choose Coin --</option>
                     {COINS.map((c) => (
-                        <option key={c} value={c}>
-                            {c}
-                        </option>
+                        <option key={c} value={c}>{c}</option>
                     ))}
                 </select>
             </div>
-            <div>
-                <p className="text-sm text-gray-400">
-                    {coin ? (
-                        <>Viewing funding rate for <strong>{coin}</strong> on {exchangeA} vs {exchangeB}</>
-                    ) : (
-                        <>No coin selected.</>
-                    )}
-                </p>
-            </div>
-            <button className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded mt-4"
-                    onClick={testFundingRate}>
-                Get Hyperliquid Funding Rate
+
+            <button
+                className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded mb-6"
+                onClick={testFundingRate}
+            >
+                Compare Funding Rates
             </button>
 
-            {fundingRate !== null && (
-                <p className="mt-4 text-green-400">
-                    Latest funding rate: <strong>{fundingRate}</strong>
-                </p>
-            )}
-
-            {spread !== null && (
-                <p className={`mt-2 ${spread > 0 ? 'text-green-400 ': 'text-red-400'}`}>
-                    Spread: <strong>{spread.toFixed(8)}</strong>
-                    <br />
-                    {note}
-                </p>
+            {coin && exchangeA && exchangeB && (
+                <div className="bg-gray-800 border border-gray-700 rounded p-4">
+                    <h2 className="text-xl font-semibold mb-2">{coin} - Funding Rate Comparison</h2>
+                    <p className="mb-1"><strong>{exchangeA}</strong> rate: {fundingRate?.toFixed(8)}</p>
+                    <p className="mb-1"><strong>{exchangeB}</strong> rate: {(fundingRate !== null && spread !== null) ? (fundingRate - spread).toFixed(8) : 'N/A'}</p>
+                    <p className={`mt-2 ${spread && spread > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        Spread: <strong>{spread?.toFixed(8)}</strong>
+                        <br />
+                        {note}
+                    </p>
+                </div>
             )}
         </div>
     )
+
 }
 
 export default App
