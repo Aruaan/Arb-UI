@@ -1,44 +1,7 @@
-import { useState } from 'react'
-import * as hl from "@nktkas/hyperliquid";
-
-const EXCHANGES = ['Hyperliquid', 'Binance', 'Bybit', 'OKX']
-const COINS = ['BTC', 'ETH', 'SOL', 'MKR', 'DOGE']
-
-async function getFundingRate(exchange: string, coin: string): Promise<number> {
-    if (exchange === "Hyperliquid") {
-        const transport = new hl.HttpTransport();
-        const client = new hl.InfoClient({ transport });
-
-        const result = await client.fundingHistory({
-            coin,
-            startTime: Date.now() - 1000 * 60 * 60 * 24
-        });
-
-        return parseFloat(result[0].fundingRate);
-    }
-
-    if (exchange === "Binance") {
-        const res = await fetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${coin}USDT`);
-        const data = await res.json();
-        return parseFloat(data.lastFundingRate);
-    }
-
-    if (exchange === "Bybit") {
-        const res = await fetch(`https://api.bybit.com/v5/market/funding/history?category=linear&symbol=${coin}USDT`);
-        const data = await res.json();
-        const last = data.result.list[0];
-        return parseFloat(last.fundingRate);
-    }
-
-    if (exchange === "OKX") {
-        const res = await fetch(`https://www.okx.com/api/v5/public/funding-rate?instId=${coin}-USDT-SWAP`);
-        const data = await res.json();
-        return parseFloat(data.data[0].fundingRate);
-    }
-
-    return 0;
-}
-
+import { useState, useEffect } from 'react'
+import {EXCHANGES} from "./constants/common.constants.ts";
+import {fetchCoins} from "./utils/fetchCoins.ts";
+import {getFundingRate} from "./utils/getFundingRate.ts";
 
 function App() {
     const [exchangeA, setExchangeA] = useState('')
@@ -47,6 +10,23 @@ function App() {
     const [fundingRate, setFundingRate] = useState<number | null>(null);
     const [spread, setSpread] = useState<number | null>(null);
     const [note, setNote] = useState<string | null>(null);
+    const [availableCoins, setAvailableCoins] = useState<string[]>([]);
+
+    useEffect(() => {
+        async function loadCoins() {
+            if (!exchangeA || !exchangeB) return;
+
+            const [coinsA, coinsB] = await Promise.all([
+                fetchCoins(exchangeA),
+                fetchCoins(exchangeB)
+            ]);
+
+            const common = coinsA.filter((coin) => coinsB.includes(coin));
+            setAvailableCoins(common.sort());
+        }
+
+        loadCoins().catch(console.error);
+    }, [exchangeA, exchangeB]);
 
     async function testFundingRate() {
         if (!coin || !exchangeA || !exchangeB) {
@@ -110,7 +90,7 @@ function App() {
                     onChange={(e) => setCoin(e.target.value)}
                 >
                     <option value="">-- Choose Coin --</option>
-                    {COINS.map((c) => (
+                    {availableCoins.map((c) => (
                         <option key={c} value={c}>{c}</option>
                     ))}
                 </select>
