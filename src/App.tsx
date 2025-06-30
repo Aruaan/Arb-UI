@@ -1,53 +1,83 @@
 import { useState, useEffect } from 'react'
+
+// Constants
 import {EXCHANGES} from "./constants/common.constants.ts";
+
+// Utils
 import {fetchCoins} from "./utils/fetchCoins.ts";
 import {getFundingRate} from "./utils/getFundingRate.ts";
+import {getAllHyperliquidFundingRates} from "./utils/getFundingRate.ts";
+
+// Types
+import type {CoinFundingData} from "./types/common.types.ts";
 
 function App() {
     const [exchangeA, setExchangeA] = useState('')
     const [exchangeB, setExchangeB] = useState('')
     const [coin, setCoin] = useState('')
-    const [fundingRate, setFundingRate] = useState<number | null>(null);
-    const [spread, setSpread] = useState<number | null>(null);
-    const [note, setNote] = useState<string | null>(null);
     const [availableCoins, setAvailableCoins] = useState<string[]>([]);
+    const [coinDataList, setCoinDataList] = useState<CoinFundingData[]>([]);
 
     useEffect(() => {
         async function loadCoins() {
-            if (!exchangeA || !exchangeB) return;
+            console.log("LOADING COINS");
+            try {
+                let hlRates: Record<string, number> = {};
+                let hlCoinNames: string[] = [];
 
-            const [coinsA, coinsB] = await Promise.all([
-                fetchCoins(exchangeA),
-                fetchCoins(exchangeB)
-            ]);
+                if (!exchangeA || !exchangeB) return;
 
-            const common = coinsA.filter((coin) => coinsB.includes(coin));
-            setAvailableCoins(common.sort());
+                if (exchangeA === 'Hyperliquid' || exchangeB === 'Hyperliquid') {
+                    console.log("Getting HL rates");
+                    const { fundingRates, coinNames } = await getAllHyperliquidFundingRates();
+                    hlRates = fundingRates;
+                    hlCoinNames = coinNames;
+                    console.log("HL coins:", hlCoinNames);
+                }
+
+                const coinsA = exchangeA === 'Hyperliquid' ? hlCoinNames : await fetchCoins(exchangeA);
+                const coinsB = exchangeB === 'Hyperliquid' ? hlCoinNames : await fetchCoins(exchangeB);
+
+
+                console.log("CoinsA:", coinsA);
+                console.log("CoinsB:", coinsB);
+
+                const common = coinsA.filter((coin) => coinsB.includes(coin));
+                console.log("Common coins:", common);
+
+                setAvailableCoins(common.sort());
+
+                const coinFundingList: CoinFundingData[] = [];
+
+                await Promise.all(common.map(async (coin) => {
+                    try {
+                        const [rateA, rateB] = await Promise.all([
+                            exchangeA === 'Hyperliquid' ? hlRates[coin] ?? 0 : getFundingRate(exchangeA, coin),
+                            exchangeB === 'Hyperliquid' ? hlRates[coin] ?? 0 : getFundingRate(exchangeB, coin),
+                        ]);
+                        const spread = rateA - rateB;
+                        const betterExchange = spread > 0 ? exchangeA : exchangeB;
+
+                        coinFundingList.push({
+                            coin,
+                            rateA,
+                            rateB,
+                            spread,
+                            betterExchange
+                        });
+                    } catch (err) {
+                        console.warn(`Error getting rate for ${coin}: `, err);
+                    }
+                }));
+
+                setCoinDataList(coinFundingList);
+            } catch (err) {
+                console.error("Failed to load coins:", err);
+            }
         }
 
         loadCoins().catch(console.error);
     }, [exchangeA, exchangeB]);
-
-    async function testFundingRate() {
-        if (!coin || !exchangeA || !exchangeB) {
-            console.warn("Missing selection");
-            return;
-        }
-
-        const rateA = await getFundingRate(exchangeA, coin);
-        const rateB = await getFundingRate(exchangeB, coin);
-
-
-        const spreadVal = rateA - rateB;
-        setFundingRate(rateA);
-        setSpread(spreadVal);
-        setNote(
-            spreadVal > 0
-                ? `${exchangeA} has a higher funding rate.`
-                : `${exchangeB} has a higher funding rate.`
-        );
-    }
-
 
     return (
         <div className="min-h-screen bg-gray-900 text-white p-6">
@@ -96,24 +126,31 @@ function App() {
                 </select>
             </div>
 
-            <button
-                className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded mb-6"
-                onClick={testFundingRate}
-            >
-                Compare Funding Rates
-            </button>
-
-            {coin && exchangeA && exchangeB && (
-                <div className="bg-gray-800 border border-gray-700 rounded p-4">
-                    <h2 className="text-xl font-semibold mb-2">{coin} - Funding Rate Comparison</h2>
-                    <p className="mb-1"><strong>{exchangeA}</strong> rate: {fundingRate?.toFixed(8)}</p>
-                    <p className="mb-1"><strong>{exchangeB}</strong> rate: {(fundingRate !== null && spread !== null) ? (fundingRate - spread).toFixed(8) : 'N/A'}</p>
-                    <p className={`mt-2 ${spread && spread > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        Spread: <strong>{spread?.toFixed(8)}</strong>
-                        <br />
-                        {note}
-                    </p>
-                </div>
+            {coinDataList.length > 0 && (
+                <table className="w-full text-sm bg-gray-800 border border-gray-700 mt-6">
+                    <thead>
+                    <tr>
+                        <th className="p-2 border-b border-gray-600">Coin</th>
+                        <th className="p-2 border-b border-gray-600">{exchangeA} Rate</th>
+                        <th className="p-2 border-b border-gray-600">{exchangeB} Rate</th>
+                        <th className="p-2 border-b border-gray-600">Spread</th>
+                        <th className="p-2 border-b border-gray-600">Better</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {coinDataList.map((data) => (
+                        <tr key={data.coin} className="text-center">
+                            <td className="p-2 border-b border-gray-700">{data.coin}</td>
+                            <td className="p-2 border-b border-gray-700">{data.rateA.toFixed(8)}</td>
+                            <td className="p-2 border-b border-gray-700">{data.rateB.toFixed(8)}</td>
+                            <td className="p-2 border-b border-gray-700">{data.spread.toFixed(8)}</td>
+                            <td className={`p-2 border-b border-gray-700 ${data.betterExchange === exchangeA ? 'text-green-400' : 'text-red-400'}`}>
+                                {data.betterExchange}
+                            </td>
+                        </tr>
+                    ))}
+                    </tbody>
+                </table>
             )}
         </div>
     )
