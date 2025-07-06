@@ -11,12 +11,109 @@ import {getAllHyperliquidFundingRates} from "./utils/getFundingRate.ts";
 // Types
 import type {CoinFundingData} from "./types/common.types.ts";
 
+
+
 function App() {
     const [exchangeA, setExchangeA] = useState('')
     const [exchangeB, setExchangeB] = useState('')
-    const [coin, setCoin] = useState('')
-    const [availableCoins, setAvailableCoins] = useState<string[]>([]);
     const [coinDataList, setCoinDataList] = useState<CoinFundingData[]>([]);
+
+    async function handleTrade(coin: string) {
+        if (!exchangeA || !exchangeB) return;
+
+        const confirmed = window.confirm(
+            `Trade ${coin}:\nLong on ${exchangeA}\nShort on ${exchangeB}?`
+        );
+
+        if (!confirmed) return;
+
+        const tradeAmount = 0.01;
+
+        if (exchangeA !== "Hyperliquid") {
+            const symbol = exchangeA.toLowerCase() === "okx"
+                ? `${coin}-USDT-SWAP`
+                : `${coin}USDT`;
+
+            const res = await fetch("http://localhost:8080/trade", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    exchange: exchangeA.toLowerCase(),
+                    side: "long",
+                    symbol,
+                    amount: tradeAmount
+                })
+            });
+
+            if (!res.ok) {
+                const err = await res.text();
+                console.error("Long leg failed:", err);
+                alert("Long trade failed. Check console.");
+                return;
+            }
+        } else {
+            const res = await fetch("http://localhost:5000/api/trade", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    coin,
+                    side: "buy",
+                    size: tradeAmount,
+                }),
+            });
+
+            if (!res.ok) {
+                const err = await res.text();
+                console.error("Long leg failed:", err);
+                alert("Long trade failed. Check console.");
+                return;
+            }
+        }
+
+        if (exchangeB !== "Hyperliquid") {
+            const symbol = exchangeB.toLowerCase() === "okx"
+                ? `${coin}-USDT-SWAP`
+                : `${coin}USDT`;
+
+            const res = await fetch("http://localhost:8080/trade", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    exchange: exchangeB.toLowerCase(),
+                    side: "short",
+                    symbol,
+                    amount: tradeAmount
+                })
+            });
+
+            if (!res.ok) {
+                const err = await res.text();
+                console.error("Short leg failed:", err);
+                alert("Short trade failed. Check console.");
+                return;
+            }
+        } else {
+            const res = await fetch("http://localhost:5000/api/trade", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    coin,
+                    side: "sell",
+                    size: tradeAmount,
+                }),
+            });
+
+            if (!res.ok) {
+                const err = await res.text();
+                console.error("Short leg failed:", err);
+                alert("Short trade failed. Check console.");
+                return;
+            }
+        }
+
+        alert(`Live trade sent: LONG ${coin} on ${exchangeA}, SHORT on ${exchangeB}`);
+    }
+
 
     useEffect(() => {
         async function loadCoins() {
@@ -45,7 +142,6 @@ function App() {
                 const common = coinsA.filter((coin) => coinsB.includes(coin));
                 console.log("Common coins:", common);
 
-                setAvailableCoins(common.sort());
 
                 const coinFundingList: CoinFundingData[] = [];
 
@@ -112,20 +208,6 @@ function App() {
                 </div>
             </div>
 
-            <div className="mb-6">
-                <label className="block mb-1 text-sm">Select Coin</label>
-                <select
-                    className="bg-gray-800 border border-gray-600 p-2 rounded w-full"
-                    value={coin}
-                    onChange={(e) => setCoin(e.target.value)}
-                >
-                    <option value="">-- Choose Coin --</option>
-                    {availableCoins.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                    ))}
-                </select>
-            </div>
-
             {coinDataList.length > 0 && (
                 <table className="w-full text-sm bg-gray-800 border border-gray-700 mt-6">
                     <thead>
@@ -135,6 +217,8 @@ function App() {
                         <th className="p-2 border-b border-gray-600">{exchangeB} Rate</th>
                         <th className="p-2 border-b border-gray-600">Spread</th>
                         <th className="p-2 border-b border-gray-600">Better</th>
+                        <th className="p-2 border-b border-gray-600">Action</th>
+
                     </tr>
                     </thead>
                     <tbody>
@@ -147,6 +231,15 @@ function App() {
                             <td className={`p-2 border-b border-gray-700 ${data.betterExchange === exchangeA ? 'text-green-400' : 'text-red-400'}`}>
                                 {data.betterExchange}
                             </td>
+                            <td className="p-2 border-b border-gray-700">
+                                <button
+                                    className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
+                                    onClick={() => handleTrade(data.coin)}
+                                >
+                                    Trade
+                                </button>
+                            </td>
+
                         </tr>
                     ))}
                     </tbody>

@@ -1,0 +1,1 @@
+export const EXCHANGES = ['Hyperliquid', 'Binance', 'Bybit', 'OKX'];

@@ -10,8 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@binance/connector": "^3.6.1",
     "@nktkas/hyperliquid": "^0.22.1",
+    "bybit-api": "^4.1.13",
     "node": "^24.2.0",
+    "okx-api": "^2.0.5",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
